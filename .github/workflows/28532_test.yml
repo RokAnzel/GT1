@@ -1,0 +1,58 @@
+name: CI Test
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  check_tests:
+    runs-on: self-hosted
+    outputs:
+      has_tests: ${{ steps.check.outputs.has_tests }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check if test inputs exist
+        id: check
+        run: |
+          if ls tests/input*.txt 1> /dev/null 2>&1; then
+            echo "has_tests=true" >> $GITHUB_OUTPUT
+          else
+            echo "No test files found." > napaka.txt
+            echo "has_tests=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload error if no tests
+        if: steps.check.outputs.has_tests == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: napaka
+          path: napaka.txt
+
+  run_tests:
+    needs: check_tests
+    if: needs.check_tests.outputs.has_tests == 'true'
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        test_id: [1, 2, 3] # Add/remove according to how many input files you create
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Compile the C++ code
+        run: g++ -o sorter main.cpp
+
+      - name: Run the test case and compare output
+        run: |
+          ./sorter 0 tests/input${{ matrix.test_id }}.txt
+          diff out.txt tests/expected${{ matrix.test_id }}.txt || echo "Test ${{ matrix.test_id }} failed." > napaka.txt
+
+      - name: Upload failure details (if any)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test_failure_${{ matrix.test_id }}
+          path: napaka.txt
